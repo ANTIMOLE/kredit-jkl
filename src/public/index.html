@@ -1,0 +1,1625 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kredit Kendaraan PT. JKL</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, Arial, sans-serif;
+      margin: 0;
+      background: #f3f5f9;
+      color: #222;
+      font-size: 14px;
+    }
+
+    header {
+      background: #0b3d91;
+      color: white;
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    nav {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 10px 20px;
+      background: white;
+      border-bottom: 1px solid #dde;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 16px auto;
+      padding: 0 16px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 3px #0002;
+    }
+
+    button {
+      background: #0b3d91;
+      color: white;
+      border: 0;
+      border-radius: 5px;
+      padding: 7px 13px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    button.sec {
+      background: #e4e8f0;
+      color: #222;
+    }
+
+    button.red {
+      background: #c62828;
+    }
+
+    button.green {
+      background: #2e7d32;
+    }
+
+    input,
+    select {
+      padding: 7px;
+      border: 1px solid #bbc;
+      border-radius: 5px;
+      width: 100%;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #556;
+      margin-bottom: 3px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(
+        auto-fill,
+        minmax(210px, 1fr)
+      );
+      gap: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+      text-align: left;
+    }
+
+    .badge {
+      background: #e3ecff;
+      color: #0b3d91;
+      border-radius: 10px;
+      padding: 2px 9px;
+      font-size: 12px;
+    }
+
+    .badge.warn {
+      background: #ffe0b2;
+      color: #a04000;
+    }
+
+    .msg {
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin-bottom: 12px;
+    }
+
+    .ok {
+      background: #e0f2e1;
+      color: #1b5e20;
+    }
+
+    .err {
+      background: #fde3e3;
+      color: #8e1b1b;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    dl {
+      display: grid;
+      grid-template-columns: 170px 1fr;
+      gap: 4px 10px;
+      margin: 0;
+    }
+
+    dt {
+      color: #667;
+    }
+
+    dd {
+      margin: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <b>Kredit Kendaraan PT. JKL</b>
+    <span id="who"></span>
+  </header>
+
+  <nav id="nav"></nav>
+
+  <main>
+    <div id="pesan"></div>
+    <div id="isi"></div>
+  </main>
+
+  <script>
+    let session = null;
+
+    const $ = (selector) => {
+      return document.querySelector(selector);
+    };
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(
+        /[&<>"']/g,
+        (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;"
+        }[char])
+      );
+    }
+
+    function rupiah(value) {
+      return "Rp " + Number(value).toLocaleString("id-ID");
+    }
+
+    const DOKUMEN_WAJIB = [
+      "KTP",
+      "SPK",
+      "BUKTI_TANDA_JADI",
+      "FORM_APLIKASI",
+      "KARTU_KELUARGA"
+    ];
+
+    async function api(path, method = "GET", body) {
+      const options = {
+        method,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      };
+
+      if (session) {
+        options.headers["x-token"] = session.token;
+      }
+
+      if (body) {
+        options.body = JSON.stringify(body);
+      }
+
+      const response = await fetch("/api" + path, options);
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const error = new Error(
+          data.error || "Terjadi kesalahan"
+        );
+
+        error.detail = data.detail || [];
+        throw error;
+      }
+
+      return data;
+    }
+
+    function tampilPesan(
+      pesan,
+      tipe = "err",
+      detail = []
+    ) {
+      if (!pesan) {
+        $("#pesan").innerHTML = "";
+        return;
+      }
+
+      let html = `
+        <div class="msg ${tipe}">
+          ${escapeHtml(pesan)}
+      `;
+
+      if (detail.length) {
+        html += "<ul>";
+
+        for (const item of detail) {
+          html += `<li>${escapeHtml(item)}</li>`;
+        }
+
+        html += "</ul>";
+      }
+
+      html += "</div>";
+
+      $("#pesan").innerHTML = html;
+    }
+
+    async function jalankan(fn, pesanSukses) {
+      try {
+        tampilPesan("");
+        await fn();
+
+        if (pesanSukses) {
+          tampilPesan(
+            pesanSukses,
+            "ok"
+          );
+        }
+      } catch (error) {
+        tampilPesan(
+          error.message,
+          "err",
+          error.detail || []
+        );
+      }
+    }
+
+    // -----------------------------
+    // Login
+    // -----------------------------
+
+    function renderLogin() {
+      $("#nav").innerHTML = "";
+      $("#who").innerHTML = "";
+
+      $("#isi").innerHTML = `
+        <div
+          class="card"
+          style="max-width:340px;margin:40px auto"
+        >
+          <h3>Login</h3>
+
+          <label>Username</label>
+          <input id="u" value="dealer_budi">
+
+          <label style="margin-top:8px">
+            Password
+          </label>
+
+          <input
+            id="pw"
+            type="password"
+            value="password123"
+          >
+
+          <div class="row">
+            <button onclick="login()">
+              Masuk
+            </button>
+          </div>
+
+          <p style="color:#778;font-size:12px">
+            Akun:
+            dealer_budi,
+            marketing_siti,
+            atasan_andi,
+            admin_rina
+          </p>
+        </div>
+      `;
+    }
+
+    async function login() {
+      await jalankan(async () => {
+        session = await api(
+          "/auth/login",
+          "POST",
+          {
+            username: $("#u").value,
+            password: $("#pw").value
+          }
+        );
+
+        $("#who").innerHTML = `
+          ${escapeHtml(session.user.username)}
+          (${escapeHtml(session.user.nama_group)})
+          <button
+            class="sec"
+            onclick="logout()"
+          >
+            Keluar
+          </button>
+        `;
+
+        buatNavigation();
+      });
+    }
+
+    function logout() {
+      session = null;
+      tampilPesan("");
+      renderLogin();
+    }
+
+    const VIEW = {
+      "/form": () => renderForm(),
+      "/daftar": () =>
+        renderList(
+          "Daftar Pengajuan",
+          "/pengajuan"
+        ),
+      "/review": () =>
+        renderList(
+          "Antrian Approval",
+          "/pengajuan/antrian-approval"
+        ),
+      "/dokumen": () =>
+        renderList(
+          "Dokumen dan E-Sign",
+          "/pengajuan",
+          [
+            "DISETUJUI",
+            "MENUNGGU_TTD"
+          ]
+        ),
+      "/pencairan": () =>
+        renderList(
+          "Pencairan",
+          "/pengajuan",
+          [
+            "TTD_LENGKAP",
+            "DICAIRKAN"
+          ]
+        ),
+      "/notifikasi": () =>
+        renderNotifikasi()
+    };
+
+    async function bukaMenu(url) {
+      await jalankan(async () => {
+        if (VIEW[url]) {
+          await VIEW[url]();
+        }
+      });
+    }
+
+    function buatNavigation() {
+      const menu = session.menu.filter(
+        (item) => item.url_menu
+      );
+
+      $("#nav").innerHTML = menu
+        .map(
+          (item) => `
+            <button
+              class="sec"
+              onclick="bukaMenu('${escapeHtml(item.url_menu)}')"
+            >
+              ${escapeHtml(item.nama_menu)}
+            </button>
+          `
+        )
+        .join("");
+
+      if (menu.length) {
+        bukaMenu(menu[0].url_menu);
+      }
+    }
+
+    // -----------------------------
+    // Daftar pengajuan
+    // -----------------------------
+
+    async function renderList(
+      judul,
+      path,
+      filterStatus
+    ) {
+      let data = await api(path);
+
+      if (filterStatus) {
+        data = data.filter(
+          (item) =>
+            filterStatus.includes(item.status)
+        );
+      }
+
+      let html = `
+        <div class="card">
+          <h3>${escapeHtml(judul)}</h3>
+      `;
+
+      if (!data.length) {
+        html += "<p>Tidak ada data.</p>";
+      } else {
+        html += `
+          <table>
+            <tr>
+              <th>No</th>
+              <th>Konsumen</th>
+              <th>Kendaraan</th>
+              <th>Angsuran</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+        `;
+
+        for (const item of data) {
+          let sla = "";
+
+          if (item.sla) {
+            sla = `
+              <span
+                class="badge ${
+                  item.sla.melebihi_sla
+                    ? "warn"
+                    : ""
+                }"
+              >
+                ${item.sla.jam_menunggu} jam
+                ${
+                  item.sla.melebihi_sla
+                    ? " (lewat SLA)"
+                    : ""
+                }
+              </span>
+            `;
+          }
+
+          html += `
+            <tr>
+              <td>
+                ${escapeHtml(item.no_pengajuan)}
+              </td>
+
+              <td>
+                ${escapeHtml(item.nama)}
+              </td>
+
+              <td>
+                ${escapeHtml(item.merk)}
+                ${escapeHtml(item.model)}
+              </td>
+
+              <td>
+                ${rupiah(item.angsuran_per_bulan)}
+              </td>
+
+              <td>
+                <span class="badge">
+                  ${escapeHtml(item.status)}
+                </span>
+                ${sla}
+              </td>
+
+              <td>
+                <button
+                  onclick="bukaDetail(${item.idpengajuan})"
+                >
+                  Buka
+                </button>
+              </td>
+            </tr>
+          `;
+        }
+
+        html += "</table>";
+      }
+
+      html += "</div>";
+
+      $("#isi").innerHTML = html;
+    }
+
+    function bukaDetail(id) {
+      jalankan(() => renderDetail(id));
+    }
+
+    // -----------------------------
+    // Detail pengajuan
+    // -----------------------------
+
+    async function renderDetail(id) {
+      const pengajuan = await api(
+        "/pengajuan/" + id
+      );
+
+      const group =
+        session.user.nama_group;
+
+      const bisaEdit = [
+        "MENUNGGU_MARKETING",
+        "DITOLAK"
+      ].includes(pengajuan.status);
+
+      let kontrak = [];
+
+      if (
+        [
+          "MENUNGGU_TTD",
+          "TTD_LENGKAP",
+          "DICAIRKAN"
+        ].includes(pengajuan.status)
+      ) {
+        kontrak = await api(
+          `/pengajuan/${id}/dokumen-kontrak`
+        );
+      }
+
+      const tombol = [];
+
+      if (
+        group === "Marketing" &&
+        bisaEdit
+      ) {
+        tombol.push(`
+          <button
+            class="sec"
+            onclick="editData(${id})"
+          >
+            Lengkapi data
+          </button>
+        `);
+
+        tombol.push(`
+          <button
+            class="green"
+            onclick="kirim(${id})"
+          >
+            Submit ke atasan
+          </button>
+        `);
+      }
+
+      if (
+        group === "Atasan Marketing" &&
+        pengajuan.status === "DIAJUKAN"
+      ) {
+        tombol.push(`
+          <button
+            class="green"
+            onclick="setuju(${id})"
+          >
+            Approve
+          </button>
+        `);
+
+        tombol.push(`
+          <button
+            class="red"
+            onclick="tolak(${id})"
+          >
+            Reject
+          </button>
+        `);
+      }
+
+      if (
+        group === "Admin Backoffice" &&
+        pengajuan.status === "DISETUJUI"
+      ) {
+        tombol.push(`
+          <button
+            onclick="buatKontrak(${id})"
+          >
+            Buat kontrak dan PO
+          </button>
+        `);
+      }
+
+      if (
+        group === "Admin Backoffice" &&
+        pengajuan.status === "TTD_LENGKAP"
+      ) {
+        tombol.push(`
+          <button
+            class="sec"
+            onclick="cek(${id})"
+          >
+            Cek kelengkapan
+          </button>
+        `);
+
+        tombol.push(`
+          <button
+            class="green"
+            onclick="cairkan(${id})"
+          >
+            Cairkan dana
+          </button>
+        `);
+      }
+
+      let uploadHtml = "";
+
+      if (
+        ["Sales Dealer", "Marketing"].includes(group) &&
+        bisaEdit
+      ) {
+        uploadHtml = `
+          <div class="card">
+            <h4>
+              Unggah dokumen
+              (simulasi: cukup nama file)
+            </h4>
+
+            <div class="row">
+              <select
+                id="dokumenJenis"
+                style="width:210px"
+              >
+                ${DOKUMEN_WAJIB
+                  .map(
+                    (item) =>
+                      `<option>${item}</option>`
+                  )
+                  .join("")}
+              </select>
+
+              <input
+                id="dokumenNama"
+                placeholder="contoh: ktp.jpg"
+                style="width:210px"
+              >
+
+              <button onclick="unggah(${id})">
+                Simpan
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      const daftarDokumen =
+        DOKUMEN_WAJIB
+          .map((jenis) => {
+            const dokumen =
+              pengajuan.dokumen.find(
+                (item) =>
+                  item.jenis === jenis
+              );
+
+            if (dokumen) {
+              return `
+                <div>
+                  ✔ ${jenis}
+                  - ${escapeHtml(
+                    dokumen.nama_file
+                  )}
+                </div>
+              `;
+            }
+
+            return `
+              <div>
+                ✘ ${jenis}
+              </div>
+            `;
+          })
+          .join("");
+
+      let kontrakHtml = "";
+
+      if (kontrak.length) {
+        kontrakHtml = `
+          <div class="card">
+            <h4>Kontrak dan PO</h4>
+        `;
+
+        for (const item of kontrak) {
+          kontrakHtml += `
+            <div
+              style="
+                padding:6px 0;
+                border-bottom:1px solid #eee
+              "
+            >
+              ${escapeHtml(item.jenis)}
+              ${escapeHtml(item.nomor_dokumen)}
+              -
+              ${escapeHtml(item.pihak)}:
+
+              <b>
+                ${
+                  item.sudah_ttd
+                    ? "sudah TTD"
+                    : "belum TTD"
+                }
+              </b>
+
+              <button
+                class="sec"
+                onclick="lihatDok(
+                  ${id},
+                  '${escapeHtml(item.jenis)}'
+                )"
+              >
+                Lihat dokumen
+              </button>
+
+              ${
+                item.sudah_ttd
+                  ? ""
+                  : `
+                    <a
+                      href="${escapeHtml(
+                        item.link_esign
+                      )}"
+                      target="_blank"
+                    >
+                      Link e-sign
+                    </a>
+                  `
+              }
+
+              ${
+                item.otp_simulasi
+                  ? `
+                    <small>
+                      | OTP (simulasi):
+                      <b>
+                        ${escapeHtml(
+                          item.otp_simulasi
+                        )}
+                      </b>
+                    </small>
+                  `
+                  : ""
+              }
+            </div>
+          `;
+        }
+
+        kontrakHtml += "</div>";
+      }
+
+      let riwayat = "Belum ada keputusan.";
+
+      if (pengajuan.riwayat.length) {
+        riwayat = pengajuan.riwayat
+          .map(
+            (item) => `
+              <div>
+                ${escapeHtml(item.created_date)}
+                -
+                ${escapeHtml(item.username)}:
+                <b>
+                  ${escapeHtml(item.keputusan)}
+                </b>
+
+                ${
+                  item.alasan
+                    ? " - " +
+                      escapeHtml(item.alasan)
+                    : ""
+                }
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      $("#isi").innerHTML = `
+        <div class="card">
+          <h3>
+            ${escapeHtml(
+              pengajuan.no_pengajuan
+            )}
+
+            <span class="badge">
+              ${escapeHtml(
+                pengajuan.status
+              )}
+            </span>
+          </h3>
+
+          <dl>
+            <dt>Konsumen</dt>
+            <dd>
+              ${escapeHtml(
+                pengajuan.nama
+              )}
+              (NIK
+              ${escapeHtml(
+                pengajuan.nik
+              )})
+            </dd>
+
+            <dt>Lahir / Status</dt>
+            <dd>
+              ${escapeHtml(
+                pengajuan.tanggal_lahir
+              )}
+              /
+              ${escapeHtml(
+                pengajuan.status_perkawinan
+              )}
+            </dd>
+
+            <dt>Telepon</dt>
+            <dd>
+              ${escapeHtml(
+                pengajuan.no_telepon
+              )}
+            </dd>
+
+            ${
+              pengajuan.nama_pasangan
+                ? `
+                  <dt>Pasangan</dt>
+                  <dd>
+                    ${escapeHtml(
+                      pengajuan.nama_pasangan
+                    )}
+                    (
+                    ${escapeHtml(
+                      pengajuan.nik_pasangan
+                    )}
+                    )
+                  </dd>
+                `
+                : ""
+            }
+
+            <dt>Dealer</dt>
+            <dd>
+              ${escapeHtml(
+                pengajuan.nama_dealer
+              )}
+            </dd>
+
+            <dt>Kendaraan</dt>
+            <dd>
+              ${escapeHtml(
+                pengajuan.merk
+              )}
+              ${escapeHtml(
+                pengajuan.model
+              )}
+              ${escapeHtml(
+                pengajuan.tipe
+              )}
+              -
+              ${escapeHtml(
+                pengajuan.warna
+              )}
+            </dd>
+
+            <dt>Harga / DP</dt>
+            <dd>
+              ${rupiah(
+                pengajuan.harga
+              )}
+              /
+              ${rupiah(
+                pengajuan.down_payment
+              )}
+            </dd>
+
+            <dt>Asuransi / Tenor</dt>
+            <dd>
+              ${escapeHtml(
+                pengajuan.asuransi
+              )}
+              /
+              ${pengajuan.tenor_bulan}
+              bulan
+            </dd>
+
+            <dt>Angsuran per bulan</dt>
+            <dd>
+              <b>
+                ${rupiah(
+                  pengajuan.angsuran_per_bulan
+                )}
+              </b>
+            </dd>
+          </dl>
+
+          <div class="row">
+            ${tombol.join("")}
+          </div>
+        </div>
+
+        ${uploadHtml}
+
+        <div class="card">
+          <h4>Dokumen pendukung</h4>
+          ${daftarDokumen}
+        </div>
+
+        ${kontrakHtml}
+
+        <div class="card">
+          <h4>Riwayat approval</h4>
+          ${riwayat}
+        </div>
+      `;
+    }
+
+    async function refreshDetail(
+      id,
+      fn,
+      pesanSukses
+    ) {
+      await jalankan(async () => {
+        await fn();
+        await renderDetail(id);
+      }, pesanSukses);
+    }
+
+    function unggah(id) {
+      refreshDetail(
+        id,
+        () =>
+          api(
+            `/pengajuan/${id}/dokumen`,
+            "POST",
+            {
+              jenis:
+                $("#dokumenJenis").value,
+              nama_file:
+                $("#dokumenNama")
+                  .value
+                  .trim()
+            }
+          ),
+        "Dokumen tersimpan"
+      );
+    }
+
+    function kirim(id) {
+      refreshDetail(
+        id,
+        () =>
+          api(
+            `/pengajuan/${id}/submit`,
+            "POST"
+          ),
+        "Pengajuan dikirim ke atasan"
+      );
+    }
+
+    function setuju(id) {
+      refreshDetail(
+        id,
+        () =>
+          api(
+            `/pengajuan/${id}/approve`,
+            "POST",
+            {}
+          ),
+        "Pengajuan disetujui"
+      );
+    }
+
+    function tolak(id) {
+      const alasan = prompt(
+        "Alasan penolakan (minimal 5 karakter):"
+      );
+
+      if (alasan === null) {
+        return;
+      }
+
+      refreshDetail(
+        id,
+        () =>
+          api(
+            `/pengajuan/${id}/reject`,
+            "POST",
+            { alasan }
+          ),
+        "Pengajuan ditolak"
+      );
+    }
+
+    function buatKontrak(id) {
+      refreshDetail(
+        id,
+        () =>
+          api(
+            `/pengajuan/${id}/dokumen-kontrak`,
+            "POST"
+          ),
+        "Kontrak dan PO dibuat. OTP dikirim (simulasi)"
+      );
+    }
+
+    function cairkan(id) {
+      refreshDetail(
+        id,
+        () =>
+          api(
+            `/pengajuan/${id}/cairkan`,
+            "POST"
+          ),
+        "Dana berhasil dicairkan"
+      );
+    }
+
+    function cek(id) {
+      jalankan(async () => {
+        const hasil = await api(
+          `/pengajuan/${id}/kelengkapan`
+        );
+
+        if (hasil.lengkap) {
+          tampilPesan(
+            "Semua dokumen lengkap, siap dicairkan",
+            "ok"
+          );
+        } else {
+          tampilPesan(
+            "Belum lengkap",
+            "err",
+            hasil.kurang
+          );
+        }
+      });
+    }
+
+    function editData(id) {
+      jalankan(async () => {
+        const data = await api(
+          "/pengajuan/" + id
+        );
+
+        renderForm(data);
+      });
+    }
+
+    function lihatDokumen(id, jenis) {
+      const windowBaru =
+        window.open("", "_blank");
+
+      jalankan(async () => {
+        const response = await fetch(
+          `/api/pengajuan/${id}/kontrak/${jenis}`,
+          {
+            headers: {
+              "x-token": session.token
+            }
+          }
+        );
+
+        if (!response.ok) {
+          if (windowBaru) {
+            windowBaru.close();
+          }
+
+          const data =
+            await response
+              .json()
+              .catch(() => ({}));
+
+          throw new Error(
+            data.error ||
+            "Gagal memuat dokumen"
+          );
+        }
+
+        const file =
+          await response.blob();
+
+        if (windowBaru) {
+          windowBaru.location =
+            URL.createObjectURL(file);
+        }
+      });
+    }
+
+    // Supaya fungsi yang dipanggil dari HTML tetap ada
+    const lihatDok = lihatDokumen;
+
+    // -----------------------------
+    // Form pengajuan
+    // -----------------------------
+
+    const FIELD_TEXT = [
+      ["nama", "Nama"],
+      ["nik", "NIK (16 digit)"],
+      ["no_telepon", "No. telepon"],
+      ["nama_pasangan", "Nama pasangan"],
+      ["nik_pasangan", "NIK pasangan"],
+      ["merk", "Merk"],
+      ["model", "Model"],
+      ["tipe", "Tipe"],
+      ["warna", "Warna"]
+    ];
+
+    function renderForm(data) {
+      const nilai = (field) =>
+        escapeHtml(
+          data?.[field] ?? ""
+        );
+
+      function pilih(id, pilihan, nilaiSekarang) {
+        return `
+          <select id="${id}">
+            ${pilihan
+              .map(
+                (item) => `
+                  <option
+                    ${
+                      String(item) ===
+                      String(nilaiSekarang)
+                        ? "selected"
+                        : ""
+                    }
+                  >
+                    ${item}
+                  </option>
+                `
+              )
+              .join("")}
+          </select>
+        `;
+      }
+
+      $("#isi").innerHTML = `
+        <div class="card">
+          <h3>
+            ${
+              data
+                ? "Lengkapi data " +
+                  escapeHtml(
+                    data.no_pengajuan
+                  )
+                : "Form Pengajuan Kredit"
+            }
+          </h3>
+
+          <div class="grid">
+            ${FIELD_TEXT
+              .map(
+                ([field, label]) => `
+                  <div>
+                    <label>${label}</label>
+                    <input
+                      id="f_${field}"
+                      value="${nilai(field)}"
+                    >
+                  </div>
+                `
+              )
+              .join("")}
+
+            <div>
+              <label>Tanggal lahir</label>
+              <input
+                id="f_tanggal_lahir"
+                type="date"
+                value="${nilai(
+                  "tanggal_lahir"
+                )}"
+              >
+            </div>
+
+            <div>
+              <label>Status perkawinan</label>
+              ${pilih(
+                "f_status_perkawinan",
+                [
+                  "BELUM_KAWIN",
+                  "KAWIN",
+                  "CERAI"
+                ],
+                data?.status_perkawinan
+              )}
+            </div>
+
+            <div>
+              <label>Asuransi</label>
+              ${pilih(
+                "f_asuransi",
+                [
+                  "ALL_RISK",
+                  "TLO"
+                ],
+                data?.asuransi
+              )}
+            </div>
+
+            <div>
+              <label>Harga kendaraan</label>
+              <input
+                id="f_harga"
+                type="number"
+                value="${nilai("harga")}"
+              >
+            </div>
+
+            <div>
+              <label>Down payment</label>
+              <input
+                id="f_down_payment"
+                type="number"
+                value="${nilai(
+                  "down_payment"
+                )}"
+              >
+            </div>
+
+            <div>
+              <label>
+                Lama kredit (bulan)
+              </label>
+
+              ${pilih(
+                "f_tenor_bulan",
+                [
+                  12,
+                  24,
+                  36,
+                  48,
+                  60
+                ],
+                data?.tenor_bulan
+              )}
+            </div>
+          </div>
+
+          <div class="row">
+            <button
+              class="sec"
+              onclick="hitungSimulasi()"
+            >
+              Hitung angsuran
+            </button>
+
+            <button
+              onclick="kirimForm(
+                ${data
+                  ? data.idpengajuan
+                  : "null"}
+              )"
+            >
+              ${
+                data
+                  ? "Simpan perubahan"
+                  : "Buat pengajuan"
+              }
+            </button>
+          </div>
+
+          <p id="sim"></p>
+        </div>
+      `;
+    }
+
+    function ambilDataForm() {
+      const data = {};
+
+      for (const [field] of FIELD_TEXT) {
+        data[field] = $(
+          "#f_" + field
+        ).value.trim();
+      }
+
+      data.tanggal_lahir =
+        $("#f_tanggal_lahir").value;
+
+      data.status_perkawinan =
+        $("#f_status_perkawinan").value;
+
+      data.asuransi =
+        $("#f_asuransi").value;
+
+      data.harga =
+        Number($("#f_harga").value);
+
+      data.down_payment =
+        Number(
+          $("#f_down_payment").value
+        );
+
+      data.tenor_bulan =
+        Number(
+          $("#f_tenor_bulan").value
+        );
+
+      return data;
+    }
+
+    function hitungSimulasi() {
+      jalankan(async () => {
+        const data =
+          ambilDataForm();
+
+        const hasil = await api(
+          "/pengajuan/simulasi",
+          "POST",
+          {
+            harga: data.harga,
+            down_payment:
+              data.down_payment,
+            tenor_bulan:
+              data.tenor_bulan
+          }
+        );
+
+        $("#sim").innerHTML = `
+          Pokok
+          ${rupiah(hasil.pokok)}
+          |
+          Bunga flat
+          ${hasil.bungaPersenPerTahun}%/tahun
+          |
+          Total bayar
+          ${rupiah(hasil.totalBayar)}
+          |
+          <b>
+            Angsuran
+            ${rupiah(hasil.angsuran)}/bulan
+          </b>
+        `;
+      });
+    }
+
+    function kirimForm(id) {
+      jalankan(async () => {
+        const data =
+          ambilDataForm();
+
+        let hasil;
+
+        if (id) {
+          hasil = await api(
+            `/pengajuan/${id}/lengkapi`,
+            "PUT",
+            data
+          );
+        } else {
+          hasil = await api(
+            "/pengajuan",
+            "POST",
+            data
+          );
+        }
+
+        await renderDetail(
+          hasil.idpengajuan
+        );
+      }, id
+        ? "Data diperbarui"
+        : "Pengajuan dibuat dan diteruskan ke marketing. Silakan unggah dokumen."
+      );
+    }
+
+    // -----------------------------
+    // Notifikasi
+    // -----------------------------
+
+    async function renderNotifikasi() {
+      const data =
+        await api("/notifikasi");
+
+      let html = `
+        <div class="card">
+          <h3>Notifikasi</h3>
+      `;
+
+      if (!data.length) {
+        html += `
+          <p>
+            Belum ada notifikasi.
+          </p>
+        `;
+      } else {
+        for (const notif of data) {
+          html += `
+            <div
+              style="
+                padding:8px 0;
+                border-bottom:1px solid #eee;
+                ${
+                  notif.is_read
+                    ? "color:#889"
+                    : "font-weight:600"
+                }
+              "
+            >
+              ${escapeHtml(notif.pesan)}
+
+              <small>
+                ${escapeHtml(
+                  notif.created_date
+                )}
+              </small>
+
+              ${
+                notif.idpengajuan
+                  ? `
+                    <button
+                      class="sec"
+                      onclick="
+                        bukaNotifikasi(
+                          ${notif.idnotif},
+                          ${notif.idpengajuan}
+                        )
+                      "
+                    >
+                      Buka
+                    </button>
+                  `
+                  : ""
+              }
+            </div>
+          `;
+        }
+      }
+
+      html += "</div>";
+
+      $("#isi").innerHTML = html;
+    }
+
+    function bukaNotifikasi(
+      idNotifikasi,
+      idPengajuan
+    ) {
+      jalankan(async () => {
+        await api(
+          `/notifikasi/${idNotifikasi}/baca`,
+          "POST"
+        );
+
+        await renderDetail(
+          idPengajuan
+        );
+      });
+    }
+
+    // -----------------------------
+    // E-sign
+    // -----------------------------
+
+    async function renderEsign(id) {
+      $("#nav").innerHTML = "";
+
+      const data = await api(
+        "/esign/" + id
+      );
+
+      let isiTandaTangan = "";
+
+      if (data.sudah_ttd) {
+        isiTandaTangan = `
+          <p class="msg ok">
+            Dokumen ini sudah ditandatangani.
+          </p>
+        `;
+      } else if (
+        data.dapat_ditandatangani
+      ) {
+        isiTandaTangan = `
+          <label style="margin-top:12px">
+            Kode OTP
+          </label>
+
+          <input
+            id="otp"
+            maxlength="6"
+          >
+
+          <div class="row">
+            <button
+              onclick="tandaTangan(${id})"
+            >
+              Tanda tangani
+            </button>
+          </div>
+        `;
+      } else {
+        isiTandaTangan = `
+          <p class="msg err">
+            Dokumen belum dapat ditandatangani.
+          </p>
+        `;
+      }
+
+      $("#isi").innerHTML = `
+        <div
+          class="card"
+          style="max-width:440px;margin:40px auto"
+        >
+          <h3>
+            Tanda tangan digital
+          </h3>
+
+          <dl>
+            <dt>Dokumen</dt>
+            <dd>
+              ${escapeHtml(data.jenis)}
+              ${escapeHtml(
+                data.nomor_dokumen
+              )}
+            </dd>
+
+            <dt>Pengajuan</dt>
+            <dd>
+              ${escapeHtml(
+                data.no_pengajuan
+              )}
+            </dd>
+
+            <dt>Penanda tangan</dt>
+            <dd>
+              ${escapeHtml(
+                data.penanda_tangan
+              )}
+              (
+              ${escapeHtml(
+                data.pihak
+              )}
+              )
+            </dd>
+          </dl>
+
+          ${isiTandaTangan}
+        </div>
+      `;
+    }
+
+    function tandaTangan(id) {
+      jalankan(async () => {
+        await api(
+          "/esign/" + id,
+          "POST",
+          {
+            kode_otp:
+              $("#otp")
+                .value
+                .trim()
+          }
+        );
+
+        await renderEsign(id);
+      }, "Berhasil ditandatangani");
+    }
+
+    // -----------------------------
+    // Jalankan aplikasi
+    // -----------------------------
+
+    const esignId = Number(
+      new URLSearchParams(
+        location.search
+      ).get("esign")
+    );
+
+    if (esignId) {
+      jalankan(() =>
+        renderEsign(esignId)
+      );
+    } else {
+      renderLogin();
+    }
+  </script>
+</body>
+</html>
